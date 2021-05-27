@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+<!--  <property resource="application.properties"/>-->
+  <appender name="DB" class="ch.qos.logback.classic.db.DBAppender">
+    <connectionSource class="ch.qos.logback.core.db.DriverManagerConnectionSource">
+      <driverClass>${spring.datasource.driverClassName}</driverClass>
+      <url>${spring.datasource.url}</url>
+      <user>${spring.datasource.username}</user>
+      <password>${spring.datasource.password}</password>
+    </connectionSource>
+  </appender>
+</configuration>
