@@ -28,7 +28,8 @@ public class RequestController {
   public File getOptimizedImage(@PathVariable String typeName,
       @PathVariable(required = false) String dummyName,
       @RequestParam("reference") String reference) {
-    File result = imageService.handleRequest(new RequestUrlStrategy(typeName, dummyName, reference));
+    File result = imageService
+        .handleRequest("show", new RequestUrlStrategy(typeName, dummyName, reference));
     log.info("{}", result.getPath());
     return result;
   }
@@ -37,7 +38,7 @@ public class RequestController {
   public void flushImage(@PathVariable String typeName,
       @RequestParam("reference") String reference) {
     log.info("{}", typeName);
-    imageService.flush(typeName, reference);
+    imageService.handleRequest("flush", new RequestUrlStrategy(typeName, null, reference));
   }
 
 }

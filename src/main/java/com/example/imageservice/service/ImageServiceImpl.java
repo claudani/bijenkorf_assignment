@@ -22,6 +22,7 @@ import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RequiredArgsConstructor
 @ResponseStatus(code = HttpStatus.NOT_FOUND) //TODO - here
 public class ImageServiceImpl {
+
+  @Autowired
+  private ImageFlushServiceImpl flushService;
 
   private AmazonS3 s3client;
   private String optimizedImage;
@@ -47,10 +51,11 @@ public class ImageServiceImpl {
   @Value("${service.sourceRootUrl}")
   private String sourceRootUrl;
 
-  public File handleRequest(RequestUrlStrategy requestUrl) {
-    this.requestUrl = requestUrl;
-    optimizedImage = getExpectedFinalLocation();
-    return getOptimizedImage();
+  public File handleRequest(String requestType, RequestUrlStrategy request) {
+    this.requestUrl = request;
+    this.optimizedImage = getExpectedFinalLocation();
+    return requestType.equals("show") ? getOptimizedImage()
+        : flushService.flush(requestUrl, optimizedImage);
   }
 
   private String getExpectedFinalLocation() {
@@ -154,17 +159,7 @@ public class ImageServiceImpl {
     return downloaded;
   }
 
-  public void flush(String typeName, String reference) {
-    if (typeName.contains("/original/")) {
-      // TODO - all optimized images will be removed for this reference
-      //  https://www.baeldung.com/aws-s3-java#6-deleting-multiple-objects
-    } else {
-      // TODO - remove typeName files
-      s3client.deleteObject(bucketName, reference);
-    }
-  }
-
-  /* ---------------------------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------------------------- */
 
   //  Code to use in implementation using a AWS S3 Bucket
   //  => change return methods from 'File' to 'S3Object'
