@@ -24,12 +24,12 @@ public class RequestController {
   @Autowired
   private ImageFlushServiceImpl imageFlushService;
 
-  @GetMapping(value = "/show/{typeName}/{dummyName}")
+  @GetMapping(value = {"/show/{typeName}", "/show/{typeName}/{dummyName}"})
   public File getOptimizedImage(@PathVariable String typeName,
       @PathVariable(required = false) String dummyName,
       @RequestParam("reference") String reference) {
     File result = imageService.handleRequest(new RequestUrlStrategy(typeName, dummyName, reference));
-    log.info("{}", result);
+    log.info("{}", result.getPath());
     return result;
   }
 

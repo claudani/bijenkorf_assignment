@@ -16,10 +16,12 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -29,81 +31,127 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ResponseStatus(code = HttpStatus.NOT_FOUND) //TODO - here?
+@ResponseStatus(code = HttpStatus.NOT_FOUND) //TODO - here
 public class ImageServiceImpl {
 
   private AmazonS3 s3client;
-  private String imagePath;
+  private String optimizedImage;
   private RequestUrlStrategy requestUrl;
 
   @Value("${service.awsAccessKey}")
-  private static String awsAccessKey;
+  private String awsAccessKey;
   @Value("${service.awsSecretKey}")
-  private static String awsSecretKey;
+  private String awsSecretKey;
   @Value("${service.awsS3Endpoint}")
   private String bucketName;
   @Value("${service.sourceRootUrl}")
-  private static String sourceRootUrl;
+  private String sourceRootUrl;
 
   public File handleRequest(RequestUrlStrategy requestUrl) {
     this.requestUrl = requestUrl;
-    imagePath = requestUrl.getOptimizedImagePath();
+    optimizedImage = getExpectedFinalLocation();
     return getOptimizedImage();
   }
 
-  private File getOptimizedImage() {
-    Path optimizedImagePath = Paths.get("/" + bucketName + "/" + imagePath);
-    if (Files.exists(optimizedImagePath)) {
-      return new File(optimizedImagePath.toUri()); // TODO - uri ?
-    }
-    originalImageExists();
-    return getOptimizedImage(); //TODO - loop?
-  }
-
-  private void originalImageExists() {
-    Path originalImagePath = Paths.get(imagePath.replace("/" + requestUrl.getPredefinedType().getName() + "/", "/original/"));
-    File originalImage;
-//    if (s3client.doesObjectExist(bucketName, originalImagePath)) {
-    if (Files.exists(originalImagePath)) {
-//      S3Object object = s3client.getObject(bucketName, originalImagePath);
-      originalImage = new File(originalImagePath.toUri());
+  private String getExpectedFinalLocation() {
+    String result = bucketName;
+    if (requestUrl.isCheckOriginalEnabled()) {
+      result = result.concat("/original/");
     } else {
-      originalImage = downloadOriginalFromSource();
+      result = result.concat("/" + requestUrl.getPredefinedType().getName() + "/");
     }
-    // Mocked resized image - remove for AWS implementation
-    Path resizedImage = Paths.get("src/main/resources/Test_image.jpg");
-    Path localBucket = Paths.get(imagePath);
-//    Files.copy(resizedImage.toFile(), localBucket, StandardCopyOption.REPLACE_EXISTING);
-    /*TODO - resizeAndOptimize(originalImage) according to Image config document -> handle exception
-       with log.warning and retry after 200ms else new log with log.error!
-
-      Store resized image on aws
-      s3client.putObject(
-          bucketName,
-          imagePath, //TODO - change to according to uploading structure?
-          resizedImage
-      );*/
+    return getS3DirectoryPath(result);
   }
 
-  private File downloadOriginalFromSource() { //TODO handle exceptions
-    URL url = null;
+  private String getS3DirectoryPath(String path) {
+    String uniqueFileName = requestUrl.getReference().replace("/", "_");
+    if (FilenameUtils.getBaseName(uniqueFileName).length() > 3) {
+      path = path.concat(uniqueFileName.substring(0, 4) + "/");
+      if (FilenameUtils.getBaseName(uniqueFileName).length() > 7) {
+        path = path.concat(uniqueFileName.substring(4, 8) + "/");
+      }
+    } else {
+      path = path.concat(FilenameUtils.getBaseName(uniqueFileName) + "/");
+    }
+    return path.concat(uniqueFileName);
+  }
+
+  private File getOptimizedImage() {
+    Path optimizedImagePath = Paths.get(optimizedImage);
+    if (Files.notExists(optimizedImagePath)) {
+      requestUrl.setCheckOriginalEnabled(true);
+      optimizeFromOriginalImage();
+    }
+    return new File(optimizedImagePath.toUri());
+  }
+
+  private void optimizeFromOriginalImage() {
+    Path originalImagePath = Paths.get(
+        optimizedImage.replace("/" + requestUrl.getPredefinedType().getName() + "/", "/original/"));
+    File originalImage;
+    if (Files.notExists(originalImagePath)) {
+      createMissingDirectories(originalImagePath.toString());
+      getSourceImage(originalImagePath);
+    }
+    originalImage = new File(originalImagePath.toUri());
+    resizeImage(originalImage);
+    handleResizedImage();
+  }
+
+  private void createMissingDirectories(String imagePath) {
+    File f = new File(imagePath);
+    if (Objects.nonNull(f.getParentFile())) {
+      f.getParentFile().mkdirs();
+    }
+  }
+
+  private void handleResizedImage() {
+    // Mocked resized image - remove for AWS implementation
+    Path resizedImage = Paths.get("src/main/resources/resized_image.jpg");
+    Path newlyCreatedDir = Paths.get(optimizedImage);
+    createMissingDirectories(optimizedImage);
+    saveImageToBucket(resizedImage, newlyCreatedDir);
+  }
+
+  private void saveImageToBucket(Path source, Path destination) {
     try {
-      url = new URL(sourceRootUrl.concat(imagePath.substring(1))); // TODO - HERE
-    } catch (MalformedURLException e) {
+      Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException e) { //TODO - handle exception better
       e.printStackTrace();
     }
-    File originalImage = null; //TODO get format from initial file path enum
+  }
+
+  private void resizeImage(File originalImage) {
+    log.info(
+        "TODO - This method would resize and optimize the originalImage according to the Image "
+            + "config document and would handle exceptions by logging at .warning, the would retry after"
+            + "200ms, otherwise log an error: {}", originalImage.exists());
+  }
+
+  private void getSourceImage(Path destinationPath) {
+    URL url = null;
     try {
-      originalImage = File.createTempFile("temp_img", "jpg");
-      BufferedImage bufferedImage = null;
-      bufferedImage = ImageIO.read(Objects.requireNonNull(url));
-      ImageIO.write(bufferedImage, "jpg", originalImage);
+      url = new URL(sourceRootUrl.concat(requestUrl.getReference()));
+    } catch (MalformedURLException e) { //TODO handle exceptions
+      e.printStackTrace();
+    }
+    File downloaded = downloadFromSourceRoot(url);
+    saveImageToBucket(downloaded.toPath(), destinationPath);
+  }
+
+  private File downloadFromSourceRoot(URL url) {
+    String fileFormat = requestUrl.getPredefinedType().getType().getName();
+    File downloaded;
+    try {
+      downloaded = File.createTempFile("temp_img", fileFormat);
+      BufferedImage bufferedImage = ImageIO.read(Objects.requireNonNull(url));
+      ImageIO.write(bufferedImage, fileFormat, downloaded);
     } catch (IOException e) {
       log.error("Source {} is down or responded with an error code: {}", sourceRootUrl,
           e.getMessage());
       throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
     }
-    return originalImage;
+    return downloaded;
   }
 
   public void flush(String typeName, String reference) {
@@ -116,36 +164,16 @@ public class ImageServiceImpl {
     }
   }
 
-  private String s3DirectoryPath() {
-    String result;
-    String uniqueFileName = requestUrl.getReference().replace("/", "_");
+  /* ---------------------------------------------------------------------------------------------- */
 
-    if (imagePath.contains("/original/")) {
-      result = "~/original/";
-    } else {
-      result = "~/" + requestUrl.getPredefinedType().name() + "/";
-    }
-
-    if (uniqueFileName.length() > 4) {
-      result = result.concat(uniqueFileName.substring(0, 3) + "/");
-      if (uniqueFileName.length() > 8) {
-        result = result.concat(uniqueFileName.substring(4, 7) + "/");
-      }
-    } else {
-      result = result.concat(uniqueFileName + "/");
-    }
-    return result.concat(uniqueFileName);
-  }
-
-
-  //  Code to use in actual implementation
-  //  TODO - change return methods from File to S3Object
+  //  Code to use in implementation using a AWS S3 Bucket
+  //  => change return methods from 'File' to 'S3Object'
   private S3Object getOptimizedS3Image() {
     configureAwsClient();
-    if (!s3client.doesObjectExist(bucketName, imagePath)) {
-      originalImageExists();
+    if (!s3client.doesObjectExist(bucketName, optimizedImage)) {
+      optimizeFromOriginalImage();
     }
-    return s3client.getObject(bucketName, imagePath);
+    return s3client.getObject(bucketName, optimizedImage);
   }
 
   private void configureAwsClient() {
