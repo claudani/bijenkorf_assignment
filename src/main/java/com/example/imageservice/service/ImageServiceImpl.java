@@ -1,12 +1,5 @@
 package com.example.imageservice.service;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.S3Object;
 import com.example.imageservice.model.RequestUrlStrategy;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -16,12 +9,10 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -36,16 +27,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class ImageServiceImpl {
 
   @Autowired
+  private BucketServiceImpl bucketService;
+  @Autowired
   private ImageFlushServiceImpl flushService;
+  @Autowired
+  private ResizeServiceImpl resizeService;
 
-  private AmazonS3 s3client;
   private String optimizedImage;
   private RequestUrlStrategy requestUrl;
 
-  @Value("${service.awsAccessKey}")
-  private String awsAccessKey;
-  @Value("${service.awsSecretKey}")
-  private String awsSecretKey;
   @Value("${service.awsS3Endpoint}")
   private String bucketName;
   @Value("${service.sourceRootUrl}")
@@ -65,20 +55,7 @@ public class ImageServiceImpl {
     } else {
       result = result.concat("/" + requestUrl.getPredefinedType().getName() + "/");
     }
-    return getS3DirectoryPath(result);
-  }
-
-  private String getS3DirectoryPath(String path) {
-    String uniqueFileName = requestUrl.getReference().replace("/", "_");
-    if (FilenameUtils.getBaseName(uniqueFileName).length() > 3) {
-      path = path.concat(uniqueFileName.substring(0, 4) + "/");
-      if (FilenameUtils.getBaseName(uniqueFileName).length() > 7) {
-        path = path.concat(uniqueFileName.substring(4, 8) + "/");
-      }
-    } else {
-      path = path.concat(FilenameUtils.getBaseName(uniqueFileName) + "/");
-    }
-    return path.concat(uniqueFileName);
+    return bucketService.getS3DirectoryPath(requestUrl, result);
   }
 
   private File getOptimizedImage() {
@@ -93,44 +70,13 @@ public class ImageServiceImpl {
   private void optimizeFromOriginalImage() {
     Path originalImagePath = Paths.get(
         optimizedImage.replace("/" + requestUrl.getPredefinedType().getName() + "/", "/original/"));
-    File originalImage;
     if (Files.notExists(originalImagePath)) {
-      createMissingDirectories(originalImagePath.toString());
+      bucketService.createMissingDirectories(originalImagePath.toString());
       getSourceImage(originalImagePath);
     }
-    originalImage = new File(originalImagePath.toUri());
-    resizeImage(originalImage);
-    handleResizedImage();
-  }
-
-  private void createMissingDirectories(String imagePath) {
-    File f = new File(imagePath);
-    if (Objects.nonNull(f.getParentFile())) {
-      f.getParentFile().mkdirs();
-    }
-  }
-
-  private void handleResizedImage() {
-    // Mocked resized image - remove for AWS implementation
-    Path resizedImage = Paths.get("src/main/resources/resized_image.jpg");
-    Path newlyCreatedDir = Paths.get(optimizedImage);
-    createMissingDirectories(optimizedImage);
-    saveImageToBucket(resizedImage, newlyCreatedDir);
-  }
-
-  private void saveImageToBucket(Path source, Path destination) {
-    try {
-      Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
-    } catch (IOException e) { //TODO - handle exception better
-      e.printStackTrace();
-    }
-  }
-
-  private void resizeImage(File originalImage) {
-    log.info(
-        "TODO - This method would resize and optimize the originalImage according to the Image "
-            + "config document and would handle exceptions by logging at .warning, the would retry after"
-            + "200ms, otherwise log an error: {}", originalImage.exists());
+    File originalImage = new File(originalImagePath.toUri());
+    resizeService.resizeImage(originalImage);
+    resizeService.handleResizedImage(optimizedImage);
   }
 
   private void getSourceImage(Path destinationPath) {
@@ -141,7 +87,7 @@ public class ImageServiceImpl {
       e.printStackTrace();
     }
     File downloaded = downloadFromSourceRoot(url);
-    saveImageToBucket(downloaded.toPath(), destinationPath);
+    bucketService.saveImage(downloaded.toPath(), destinationPath);
   }
 
   private File downloadFromSourceRoot(URL url) {
@@ -157,27 +103,6 @@ public class ImageServiceImpl {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
     }
     return downloaded;
-  }
-
-  /* -------------------------------------------------------------------------------------------- */
-
-  //  Code to use in implementation using a AWS S3 Bucket
-  //  => change return methods from 'File' to 'S3Object'
-  private S3Object getOptimizedS3Image() {
-    configureAwsClient();
-    if (!s3client.doesObjectExist(bucketName, optimizedImage)) {
-      optimizeFromOriginalImage();
-    }
-    return s3client.getObject(bucketName, optimizedImage);
-  }
-
-  private void configureAwsClient() {
-    AWSCredentials awsCredentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey);
-    s3client = AmazonS3ClientBuilder
-        .standard()
-        .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
-        .withRegion(Regions.EU_CENTRAL_1)
-        .build();
   }
 
 }
