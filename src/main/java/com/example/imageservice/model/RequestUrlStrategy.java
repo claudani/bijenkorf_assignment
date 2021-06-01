@@ -20,22 +20,23 @@ public class RequestUrlStrategy {
   private PredefinedImageType predefinedType;
   private String dummySeoName;
   private String reference;
+  private boolean checkOriginalEnabled;
 
   public RequestUrlStrategy(String typeName, @Nullable String dummyName, String reference) {
-    if (!EnumUtils.isValidEnum(PredefinedImageType.class, typeName.toUpperCase())) {
-      log.info("{} is not a valid predefined image type", typeName);
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
+    if (typeName.equals("original")) {
+      this.predefinedType = null;
+      this.checkOriginalEnabled = true;
+    } else {
+      typeName = typeName.replace("-", "_");
+      if (!EnumUtils.isValidEnumIgnoreCase(PredefinedImageType.class, typeName)) {
+        log.info("{} is not a valid predefined image type", typeName);
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
+      }
+      this.checkOriginalEnabled = false;
+      this.predefinedType = PredefinedImageType.valueOf(typeName.toUpperCase());
     }
-    this.predefinedType = PredefinedImageType.valueOf(typeName.toUpperCase());
     this.dummySeoName = dummyName;
     this.reference = reference.replace("%2F", "/");
-  }
-
-  public String getOptimizedImagePath() {
-    if (Objects.nonNull(dummySeoName)) {
-      return "/" + predefinedType.getName() + "/" + dummySeoName + "/" + reference;
-    }
-    return "/" + predefinedType.getName() + "/" + reference;
   }
 
 }
