@@ -1,15 +1,13 @@
 package com.example.imageservice.model;
 
+import com.example.imageservice.exception.CustomException;
 import com.example.imageservice.model.enums.PredefinedImageType;
-import java.util.Objects;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.EnumUtils;
-import org.springframework.http.HttpStatus;
 import org.springframework.lang.Nullable;
-import org.springframework.web.server.ResponseStatusException;
 
 @Getter
 @Setter
@@ -30,7 +28,7 @@ public class RequestUrlStrategy {
       typeName = typeName.replace("-", "_");
       if (!EnumUtils.isValidEnumIgnoreCase(PredefinedImageType.class, typeName)) {
         log.info("{} is not a valid predefined image type", typeName);
-        throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
+        throw new CustomException();
       }
       this.checkOriginalEnabled = false;
       this.predefinedType = PredefinedImageType.valueOf(typeName.toUpperCase());
