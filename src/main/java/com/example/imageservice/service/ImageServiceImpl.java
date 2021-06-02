@@ -1,5 +1,6 @@
 package com.example.imageservice.service;
 
+import com.example.imageservice.exception.CustomException;
 import com.example.imageservice.model.RequestUrlStrategy;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -13,17 +14,14 @@ import java.util.Objects;
 import javax.imageio.ImageIO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ResponseStatus(code = HttpStatus.NOT_FOUND) //TODO - here
 public class ImageServiceImpl {
 
   @Autowired
@@ -80,11 +78,12 @@ public class ImageServiceImpl {
   }
 
   private void getSourceImage(Path destinationPath) {
-    URL url = null;
+    URL url;
     try {
       url = new URL(sourceRootUrl.concat(requestUrl.getReference()));
-    } catch (MalformedURLException e) { //TODO handle exceptions
-      e.printStackTrace();
+    } catch (MalformedURLException e) {
+      log.info("A URL for the path {} could not be formed", destinationPath);
+      throw new CustomException();
     }
     File downloaded = downloadFromSourceRoot(url);
     bucketService.saveImage(downloaded.toPath(), destinationPath);
@@ -98,10 +97,16 @@ public class ImageServiceImpl {
       BufferedImage bufferedImage = ImageIO.read(Objects.requireNonNull(url));
       ImageIO.write(bufferedImage, fileFormat, downloaded);
     } catch (IOException e) {
-      log.error("Source {} is down or responded with an error code: {}", sourceRootUrl,
-          e.getMessage());
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND); //TODO - double check
+      log.info("The requested reference ({}) does not exist on the source root url",
+          FilenameUtils.getName(url.getFile()));
+      try {
+        Files.deleteIfExists(Paths.get(FilenameUtils.getPath(getExpectedFinalLocation())));
+      } catch (IOException ioException) {
+        log.info("Could not delete directories");
+      }
+      throw new CustomException();
     }
+//    catch () { } TODO - catch source is down/server error
     return downloaded;
   }
 

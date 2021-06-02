@@ -6,6 +6,7 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.example.imageservice.exception.CustomException;
 import com.example.imageservice.model.RequestUrlStrategy;
 import java.io.File;
 import java.io.IOException;
@@ -17,20 +18,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.ResponseStatus;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ResponseStatus(code = HttpStatus.NOT_FOUND) //TODO - here?
 public class BucketServiceImpl {
 
   @Value("${service.awsAccessKey}")
   private String awsAccessKey;
   @Value("${service.awsSecretKey}")
   private String awsSecretKey;
+
+  private int counter = 0;
 
   public String getS3DirectoryPath(RequestUrlStrategy requestUrl, String path) {
     String uniqueFileName = requestUrl.getReference().replace("/", "_");
@@ -54,9 +54,22 @@ public class BucketServiceImpl {
 
   void saveImage(Path source, Path destination) {
     try {
+      counter++;
       Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
-    } catch (IOException e) { //TODO - handle exception better
-      e.printStackTrace();
+    } catch (IOException e) {
+      if ((counter == 1)) {
+        log.error("The new (resized) image could not be added to the bucket");
+      } else {
+        log.warn(
+            "There was a problem writing the new (resized) image to the bucket, waiting 200ms and trying again");
+        try {
+          wait(200, 0);
+        } catch (InterruptedException interruptedException) {
+          log.info("Interruption while waiting to retry and save new (resized) image to bucket: {}",
+              interruptedException.getMessage());
+          throw new CustomException();
+        }
+      }
     }
   }
 
